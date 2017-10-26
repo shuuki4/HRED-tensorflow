@@ -106,5 +106,10 @@ def get_iterator(corpus_file, vocab_table, batch_size,
 
 def to_single_string(strings):
     strings = [st.decode('utf-8') for st in strings]
+    try:
+        eos_index = strings.index(EOS)
+        strings = strings[:eos_index]
+    except ValueError:
+        pass
     strings = [st for st in strings if st not in {EOS, SOS, PAD}]
     return ' '.join(strings)

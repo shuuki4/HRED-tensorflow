@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 import os
 
 from .dataset import get_vocab_size, to_single_string
@@ -10,9 +11,27 @@ from .utils import log
 FLAGS = None
 
 
-def validate(iterator, model, sess):
-    # TODO: implement validate
-    pass
+def validate(iterator, model, sess, save_dir):
+    model.saver.restore(
+        sess, tf.train.latest_checkpoint(save_dir))
+
+    sess.run(iterator.initializer)
+    sum_losses, sum_count = 0., 0.
+
+    try:
+        result = model.eval(sess)
+        sum_losses += result['loss'] * result['batch_size']
+        sum_count += result['batch_size']
+    except tf.errors.OutOfRangeError:
+        pass
+
+    avg_loss = sum_losses / sum_count
+    ppl = np.exp(avg_loss)
+    summary = tf.Summary(value=[
+        tf.Summary.Value(tag="val/loss", simple_value=avg_loss),
+        tf.Summary.Value(tag="val/ppl", simple_value=ppl)
+    ])
+    return avg_loss, ppl, summary
 
 
 def print_inference(source_strings, target_strings,
@@ -63,17 +82,21 @@ def train(argv=None):
     train_sess.run(train_iterator.initializer)
 
     while epoch <= hparams.max_epoch:
-        if global_step % hparams.save_step == 0:
-            if global_step > 0:
-                train_model.saver.save(train_sess,
-                                       hparams.save_dir,
-                                       global_step=global_step)
+        if global_step % hparams.save_step == 0 and global_step > 0:
+            train_model.saver.save(train_sess,
+                                   os.path.join(hparams.save_dir, "model.ckpt"),
+                                   global_step=global_step)
         if global_step % hparams.val_step == 0:
-            latest_checkpoint = tf.train.latest_checkpoint(hparams.save_dir)
-            if latest_checkpoint:
-                val_model.saver.restore(val_sess, latest_checkpoint)
-                validate(val_iterator, val_model, val_sess)
-                # save to summary...
+            train_model.saver.save(train_sess,
+                                   os.path.join(hparams.save_dir, "model.ckpt"),
+                                   global_step=global_step)
+            val_loss, val_ppl, val_summary = \
+                validate(val_iterator, val_model, val_sess, hparams.save_dir)
+            log.info('[Epoch {}] Step {} Validation: Loss: {:.5f}, PPL: {:.5f}'
+                     .format(epoch, global_step, val_loss, val_ppl))
+            summary_writer.add_summary(val_summary, global_step)
+            summary_writer.flush()
+
         try:
             step_result = train_model.train(
                 train_sess,
@@ -98,12 +121,15 @@ def train(argv=None):
 
         except tf.errors.OutOfRangeError:  # epoch done
             log.warning('[Epoch {}] Epoch done!'.format(epoch))
-            latest_checkpoint = tf.train.latest_checkpoint(hparams.save_dir)
-            if latest_checkpoint:
-                val_model.saver.restore(
-                    val_sess, tf.train.latest_checkpoint(hparams.save_dir))
-                validate(val_iterator, val_model, val_sess)
-                # save to summary...
+            train_model.saver.save(train_sess,
+                                   os.path.join(hparams.save_dir, "model.ckpt"),
+                                   global_step=global_step)
+            val_loss, val_ppl, val_summary = \
+                validate(val_iterator, val_model, val_sess, hparams.save_dir)
+            log.info('[Epoch {}] Epoch Validation: Loss: {:.5f}, PPL: {:.5f}'
+                     .format(epoch, val_loss, val_ppl))
+            summary_writer.add_summary(val_summary, global_step)
+            summary_writer.flush()
 
             epoch += 1
             train_sess.run(train_iterator.initializer)

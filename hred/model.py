@@ -43,6 +43,12 @@ class HRED:
 
         return edict(sess.run(to_runs))
 
+    def eval(self, sess):
+        return edict(sess.run({
+            'loss': self.loss,
+            'batch_size': self._batch_size
+        }))
+
     def _build_graph(self, inputs):
         if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
             self._dropout_keep_prob = self.hparams.dropout_keep_prob
@@ -393,6 +399,8 @@ class HRED:
         loss = s2s.sequence_loss(
             logits, targets, length_mask, name='sequence_loss')
         tf.summary.scalar('loss', loss)
+        tf.summary.scalar('ppl', tf.exp(loss))
+
         return loss
 
     def _build_optimizer(self, loss):

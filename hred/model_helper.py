@@ -16,9 +16,10 @@ def get_model(hparams, mode, graph):
     else:
         raise ValueError('Inappropriate mode for get_model.')
 
-    vocab_table = get_vocab_table(hparams.vocab_path)
-    reverse_vocab_table = get_vocab_table(hparams.vocab_path, reverse=True)
-    iterator = get_iterator(corpus_path, vocab_table, batch_size)
+    with tf.device('/cpu:0'):
+        vocab_table = get_vocab_table(hparams.vocab_path)
+        reverse_vocab_table = get_vocab_table(hparams.vocab_path, reverse=True)
+        iterator = get_iterator(corpus_path, vocab_table, batch_size)
     model = HRED(iterator, vocab_table, reverse_vocab_table, hparams, mode)
 
     tf_config = tf.ConfigProto()
