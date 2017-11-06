@@ -13,11 +13,13 @@ class HRED:
     HRED Tensorflow model with prev-input attention.
     WARNING: Currently assumes fixed-size number of sentences over data.
     """
-    def __init__(self, inputs, vocab_table, reverse_vocab_table, hparams, mode):
+    def __init__(self, inputs, vocab_table, reverse_vocab_table,
+                 vocab_probs, hparams, mode):
         self.inputs = inputs
         self.hparams = hparams
         self.vocab_table = vocab_table
         self.reverse_vocab_table = reverse_vocab_table
+        self.vocab_probs = vocab_probs
         self.mode = mode
         self.global_step = tf.Variable(0, trainable=False)
 
@@ -49,6 +51,13 @@ class HRED:
             'batch_size': self._batch_size
         }))
 
+    def inference(self, sess):
+        return edict(sess.run({
+            'sources': self.source_strings,
+            'targets': self.target_strings,
+            'inferences': self.inference_strings
+        }))
+
     def _build_graph(self, inputs):
         if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
             self._dropout_keep_prob = self.hparams.dropout_keep_prob
@@ -73,13 +82,27 @@ class HRED:
 
         with tf.name_scope('loss'):
             if self.mode != tf.contrib.learn.ModeKeys.INFER:
-                logits = tf.reshape(
-                    sentence_decoder_logit,
+                #logits = tf.reshape(
+                #    sentence_decoder_logit,
+                #    tf.stack([self._batch_size, self._num_sentence,
+                #             -1, self.hparams.num_vocab]))
+                #self.inference_ids = tf.argmax(logits, axis=-1,
+                #                               name="inference_ids")
+
+                rnn_outputs = tf.reshape(
+                    sentence_decoder_logit, [-1, self.hparams.num_rnn_units])
+                real_logits = tf.reshape(
+                    self.output_layer(rnn_outputs),
                     tf.stack([self._batch_size, self._num_sentence,
                               -1, self.hparams.num_vocab]))
-                self.inference_ids = tf.argmax(logits, axis=-1,
-                                               name="inference_ids")
-                loss = self._build_loss(inputs, sentence_decoder_logit)
+                self.inference_ids = tf.argmax(real_logits,
+                                               axis=-1, name="inference_ids")
+                loss = self._build_loss(
+                    inputs,
+                    sentence_decoder_logit,
+                    tf.transpose(self.output_layer.kernel),
+                    self.output_layer.bias
+                )
                 self.loss = loss
             else:
                 self.loss = tf.constant(0.)
@@ -334,10 +357,11 @@ class HRED:
         with tf.variable_scope('output_projection'):
             output_layer = layers_core.Dense(
                 self.hparams.num_vocab, name="output_projection")
+            self.output_layer = output_layer
 
         if self.mode in {tf.contrib.learn.ModeKeys.TRAIN,
                          tf.contrib.learn.ModeKeys.EVAL}:
-            if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
+            if self.mode == tf.contrib.learn.ModeKeys.TRAIN and False:
                 sampling_probability = 1.0 - tf.train.exponential_decay(
                     1.0,
                     self.global_step,
@@ -360,9 +384,9 @@ class HRED:
                     name='training_helper',
                 )
             decoder = s2s.BasicDecoder(
-                decoder_cell, helper, decoder_initial_state, output_layer)
+                decoder_cell, helper, decoder_initial_state, output_layer=None)
             final_outputs, final_state, _ = dynamic_decode_with_concat(
-                decoder, context_encoder_outputs)
+                decoder, context_encoder_outputs, swap_memory=True)
             logits = final_outputs.rnn_output
             sample_id = final_outputs.sample_id
 
@@ -383,21 +407,44 @@ class HRED:
             )
             final_outputs, final_state, _ = dynamic_decode_with_concat(
                 decoder, context_encoder_outputs,
-                maximum_iterations=self.hparams.target_max_length)
+                maximum_iterations=self.hparams.target_max_length,
+                swap_memory=True)
             logits = final_outputs.beam_search_decoder_output.scores
             sample_id = final_outputs.predicted_ids
 
         return logits, final_state, sample_id
 
-    def _build_loss(self, inputs, logits):
-        batch_size = self._batch_size
-        num_sentence = self._num_sentence
+    def _build_loss(self, inputs, logits, class_weights, class_biases):
         target_lengths = tf.reshape(inputs.tgt_lengths, [-1])
-        length_mask = tf.sequence_mask(target_lengths, dtype=tf.float32)
-        targets = tf.reshape(inputs.targets_out,
-                             tf.stack([batch_size * num_sentence, -1]))
-        loss = s2s.sequence_loss(
-            logits, targets, length_mask, name='sequence_loss')
+        length_mask = tf.reshape(
+            tf.sequence_mask(target_lengths, dtype=tf.float32), [-1])
+        targets = tf.reshape(inputs.targets_out, [-1, 1])
+        logits = tf.reshape(logits, [-1, self.hparams.num_rnn_units])
+        flat_mask = tf.reshape(length_mask, [-1])
+
+        sampler = tf.nn.fixed_unigram_candidate_sampler(
+            true_classes=tf.cast(targets, tf.int64),
+            range_max=self.hparams.num_vocab,
+            num_true=1,
+            num_sampled=self.hparams.num_sample_softmax,
+            unique=True,
+            unigrams=(self.vocab_probs + 1e-16).tolist()
+        )
+        loss = tf.nn.sampled_softmax_loss(
+            weights=class_weights,
+            biases=class_biases,
+            labels=targets,
+            inputs=logits,
+            num_sampled=self.hparams.num_sample_softmax,
+            num_classes=self.hparams.num_vocab,
+            num_true=1,
+            sampled_values=sampler
+        ) * flat_mask
+        loss = tf.reduce_sum(loss) / (tf.reduce_sum(flat_mask) + 1e-12)
+
+        #loss = s2s.sequence_loss(
+        #    logits, targets, length_mask, name='sequence_loss')
+
         tf.summary.scalar('loss', loss)
         tf.summary.scalar('ppl', tf.exp(loss))
 
@@ -410,6 +457,7 @@ class HRED:
             self.hparams.lr_decay_steps,
             self.hparams.lr_decay_rate,
             name='lr')
+        lr = tf.maximum(lr, self.hparams.min_decay_rate)
 
         if self.hparams.optimizer.lower() == 'sgd':
             optimizer = tf.train.GradientDescentOptimizer(lr)

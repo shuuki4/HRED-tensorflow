@@ -22,6 +22,8 @@ def get_hparams_parser():
                         help="dimension of word embeddings")
     parser.add_argument("--pretrained_word_path", type=str, default=None,
                         help="path of pretrained word embeddings")
+    parser.add_argument("--num_sample_softmax", type=int, default=2048,
+                        help="number of samples to sample for sampled softmax")
 
     # rnn configs
     parser.add_argument("--rnn_cell_type", type=str, default="lstm",
@@ -54,19 +56,21 @@ def get_hparams_parser():
                         help="decay steps for learning rate decay")
     parser.add_argument("--lr_decay_rate", type=float, default=0.96,
                         help="decay rate for learning rate decay")
+    parser.add_argument("--min_decay_rate", type=float, default=0.01,
+                        help="minimum decay rate")
     parser.add_argument("--momentum", type=float, default=0.9,
                         help="momentum value for momentum optimizer")
     parser.add_argument("--max_grad_norm", type=float, default=5.0,
                         help="maximum value of global norm")
 
     # training configs
-    parser.add_argument("--batch_size", type=int, default=256,
+    parser.add_argument("--batch_size", type=int, default=64,
                         help="size of single mini-batch")
     parser.add_argument("--max_epoch", type=float, default=100,
                         help="number of epoches to run")
-    parser.add_argument("--loss_log_step", type=int, default=20,
+    parser.add_argument("--loss_log_step", type=int, default=50,
                         help="frequency of steps to log loss")
-    parser.add_argument("--inference_log_step", type=int, default=20,
+    parser.add_argument("--inference_log_step", type=int, default=200,
                         help="frequency of steps to log train inference")
     parser.add_argument("--summary_step", type=int, default=20,
                         help="frequency of steps to save summary stats")
@@ -74,7 +78,7 @@ def get_hparams_parser():
                         help="frequency of steps to save checkpoints")
 
     # validation configs
-    parser.add_argument("--val_batch_size", type=int, default=256,
+    parser.add_argument("--val_batch_size", type=int, default=64,
                         help="size of single mini-batch for validation")
     parser.add_argument("--val_step", type=int, default=10000,
                         help="frequency of steps for validation")

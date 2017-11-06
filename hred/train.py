@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+import json
 import os
 
 from .dataset import get_vocab_size, to_single_string
@@ -48,7 +49,7 @@ def print_inference(source_strings, target_strings,
 
 
 def train(argv=None):
-    num_vocab = get_vocab_size(FLAGS.vocab_path)
+    num_vocab = get_vocab_size(FLAGS.vocab_pathf)
 
     # TODO: add hparams management. save epoch in hparams.
     hparams = tf.contrib.training.HParams(**vars(FLAGS))
@@ -56,6 +57,9 @@ def train(argv=None):
 
     if not os.path.exists(hparams.save_dir):
         os.makedirs(hparams.save_dir)
+    with open(os.path.join(hparams.save_dir, 'hparams.json'),
+              'w', encoding='utf-8') as f:
+        f.write(hparams.to_json())
 
     tf_config = tf.ConfigProto()
     tf_config.gpu_options.allow_growth = True
@@ -96,7 +100,6 @@ def train(argv=None):
                      .format(epoch, global_step, val_loss, val_ppl))
             summary_writer.add_summary(val_summary, global_step)
             summary_writer.flush()
-
         try:
             step_result = train_model.train(
                 train_sess,

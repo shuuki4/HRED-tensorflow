@@ -17,10 +17,11 @@ def get_model(hparams, mode, graph):
         raise ValueError('Inappropriate mode for get_model.')
 
     with tf.device('/cpu:0'):
-        vocab_table = get_vocab_table(hparams.vocab_path)
-        reverse_vocab_table = get_vocab_table(hparams.vocab_path, reverse=True)
+        vocab_table, vocab_probs = get_vocab_table(hparams.vocab_path)
+        reverse_vocab_table, _ = get_vocab_table(hparams.vocab_path, reverse=True)
         iterator = get_iterator(corpus_path, vocab_table, batch_size)
-    model = HRED(iterator, vocab_table, reverse_vocab_table, hparams, mode)
+    model = HRED(iterator, vocab_table, reverse_vocab_table,
+                 vocab_probs, hparams, mode)
 
     tf_config = tf.ConfigProto()
     tf_config.gpu_options.allow_growth = True

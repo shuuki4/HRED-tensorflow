@@ -1,12 +1,13 @@
 import tensorflow as tf
+import numpy as np
 from collections import namedtuple
 from tensorflow.python.ops import lookup_ops
 
 
 PAD = '<pad>'
+UNK = '<unk>'
 SOS = '<s>'
 EOS = '</s>'
-UNK = '<unk>'
 
 
 class BatchedInput(namedtuple("BatchedInput",
@@ -31,22 +32,39 @@ def get_vocab_size(vocab_file):
 
 
 def get_vocab_table(vocab_file, reverse=False):
+    vocabs = [PAD, UNK, SOS, EOS]
+    counts = [0, 0, 0, 0]
     with open(vocab_file, 'r', encoding='utf-8') as f:
-        vocabs = [PAD, SOS, EOS, UNK] + [line.strip() for line in f]
+        for line in f:
+            vocab, count = line.strip().split('\t')
+            vocabs.append(vocab)
+            counts.append(int(count))
+
+    # probability of EOS should be 1. / (average target token num + 1).
+    # currently 2.75
+    sum_counts = sum(counts)
+    eos_prob = 1. / (2.75 + 1)
+    vocab_probs = np.array(counts, dtype=np.float32) * (1 - eos_prob) \
+                  / sum_counts
+    vocab_probs[3] = eos_prob
+
     if not reverse:
         vocab_table = lookup_ops.index_table_from_tensor(
-            vocabs, default_value=3)
+            vocabs, default_value=1)
     else:
         vocab_table = lookup_ops.index_to_string_table_from_tensor(
             vocabs, default_value=UNK)
 
-    return vocab_table
+    return vocab_table, vocab_probs
 
 
 def get_iterator(corpus_file, vocab_table, batch_size,
+                 skip_unk_target=True,
                  num_threads=4, output_buffer_size=None):
     if output_buffer_size is None:
         output_buffer_size = batch_size * 1000
+    with open(corpus_file, 'r', encoding='utf-8') as f:
+        num_sentences = len(f.readline().strip().split('\t'))
 
     sos_id = tf.cast(vocab_table.lookup(tf.constant(SOS)), tf.int32)
     eos_id = tf.cast(vocab_table.lookup(tf.constant(EOS)), tf.int32)
@@ -70,6 +88,8 @@ def get_iterator(corpus_file, vocab_table, batch_size,
         return sources, targets_in, targets_out, src_lengths, tgt_lengths
 
     dataset = tf.contrib.data.TextLineDataset(corpus_file)
+    dataset = dataset.shuffle(output_buffer_size)
+
     dataset = dataset.map(
         lambda line: tf.string_split([line], delimiter='\t').values,
         num_threads=num_threads, output_buffer_size=output_buffer_size)
@@ -77,8 +97,18 @@ def get_iterator(corpus_file, vocab_table, batch_size,
         lambda sents: tuple(
             tf.cast(vocab_table.lookup(tf.string_split([sents[i]]).values),
                     tf.int32)
-            for i in range(3)),
+            for i in range(num_sentences)),
         num_threads=num_threads, output_buffer_size=output_buffer_size)
+
+    if skip_unk_target:
+        unk_idx = tf.constant(1, dtype=tf.int32)
+
+        def _unk_in_target(*sentences):
+            targets = sentences[1:]
+            is_unks = [tf.reduce_any(tf.equal(t, unk_idx)) for t in targets]
+            return tf.reduce_all(tf.logical_not(tf.stack(is_unks)))
+        dataset = dataset.filter(_unk_in_target)
+
     dataset = dataset.map(
         _add_token_and_split,
         num_threads=num_threads, output_buffer_size=output_buffer_size)
