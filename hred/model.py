@@ -457,7 +457,9 @@ class HRED:
             self.hparams.lr_decay_steps,
             self.hparams.lr_decay_rate,
             name='lr')
-        lr = tf.maximum(lr, self.hparams.min_decay_rate)
+        lr = tf.maximum(
+            lr,
+            self.hparams.initial_learning_rate * self.hparams.min_decay_rate)
 
         if self.hparams.optimizer.lower() == 'sgd':
             optimizer = tf.train.GradientDescentOptimizer(lr)
