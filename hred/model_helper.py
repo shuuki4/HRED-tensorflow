@@ -2,7 +2,7 @@ import tensorflow as tf
 import numpy as np
 import warnings
 
-from .dataset import get_vocab_table, get_iterator
+from .dataset import get_vocab_table, get_iterator, get_infer_inputs
 from .model import HRED
 
 
@@ -29,6 +29,23 @@ def get_model(hparams, mode, graph):
     sess.run(tf.tables_initializer())
 
     return model, iterator, sess
+
+
+def get_infer_model(hparams, graph, num_sentence):
+    with tf.device('/cpu:0'):
+        vocab_table, vocab_probs = get_vocab_table(hparams.vocab_path)
+        reverse_vocab_table, _ = get_vocab_table(hparams.vocab_path, reverse=True)
+        inputs = get_infer_inputs(vocab_table, num_sentence)
+
+    model = HRED(inputs, vocab_table, reverse_vocab_table,
+                 vocab_probs, hparams, mode=tf.contrib.learn.ModeKeys.INFER)
+
+    tf_config = tf.ConfigProto()
+    tf_config.gpu_options.allow_growth = True
+    sess = tf.Session(config=tf_config, graph=graph)
+    sess.run(tf.tables_initializer())
+
+    return model, inputs, sess
 
 
 def _single_cell(cell_type, num_units, dropout_keep_prob, residual):

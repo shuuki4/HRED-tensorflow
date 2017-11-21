@@ -51,12 +51,20 @@ class HRED:
             'batch_size': self._batch_size
         }))
 
-    def inference(self, sess):
+    def inference_for_train(self, sess):
+        assert self.mode != tf.contrib.learn.ModeKeys.INFER
         return edict(sess.run({
             'sources': self.source_strings,
             'targets': self.target_strings,
             'inferences': self.inference_strings
         }))
+
+    def inference(self, sess, feed_dict):
+        assert self.mode == tf.contrib.learn.ModeKeys.INFER
+        return edict(sess.run({
+            'inferences': self.inference_strings,
+            'scores': self.scores
+        }, feed_dict=feed_dict))
 
     def _build_graph(self, inputs):
         if self.mode == tf.contrib.learn.ModeKeys.TRAIN:
@@ -105,6 +113,7 @@ class HRED:
                 )
                 self.loss = loss
             else:
+                self.scores = sentence_decoder_logit
                 self.loss = tf.constant(0.)
 
         with tf.name_scope('optimizer'):
@@ -120,9 +129,9 @@ class HRED:
         with tf.name_scope('lookup'):
             self.source_strings = self.reverse_vocab_table.lookup(
                 tf.cast(self.inputs.sources, tf.int64))
-            self.target_strings = self.reverse_vocab_table.lookup(
-                tf.cast(self.inputs.targets_in, tf.int64))
             if self.mode != tf.contrib.learn.ModeKeys.INFER:
+                self.target_strings = self.reverse_vocab_table.lookup(
+                    tf.cast(self.inputs.targets_in, tf.int64))
                 self.inference_strings = self.reverse_vocab_table.lookup(
                     tf.cast(self.inference_ids, tf.int64))
             else:
@@ -266,7 +275,6 @@ class HRED:
                                 sentence_encoder_outputs):
         batch_size = self._batch_size
         num_sentence = self._num_sentence
-        target_lengths = tf.reshape(inputs.tgt_lengths, [-1])
 
         word_embedding = model_helper.create_word_embedding(
             num_vocab=self.hparams.num_vocab,
@@ -274,10 +282,6 @@ class HRED:
             name='decoder/word_embedding',
             pretrained_word_matrix=self.hparams.pretrained_word_path
         )
-        decoder_input_tokens = tf.reshape(
-            inputs.targets_in, tf.stack([batch_size * num_sentence, -1]))
-        decoder_inputs = tf.nn.embedding_lookup(
-            word_embedding, decoder_input_tokens)
 
         # tile_batch in inference mode
         beam_width = self.hparams.beam_width
@@ -354,6 +358,7 @@ class HRED:
             effective_batch_size, tf.float32)
         decoder_initial_state = decoder_initial_state.clone(
             cell_state=sentence_encoder_final_states)
+
         with tf.variable_scope('output_projection'):
             output_layer = layers_core.Dense(
                 self.hparams.num_vocab, name="output_projection")
@@ -361,6 +366,12 @@ class HRED:
 
         if self.mode in {tf.contrib.learn.ModeKeys.TRAIN,
                          tf.contrib.learn.ModeKeys.EVAL}:
+            decoder_input_tokens = tf.reshape(
+                inputs.targets_in, tf.stack([batch_size * num_sentence, -1]))
+            decoder_inputs = tf.nn.embedding_lookup(
+                word_embedding, decoder_input_tokens)
+            target_lengths = tf.reshape(inputs.tgt_lengths, [-1])
+
             if self.mode == tf.contrib.learn.ModeKeys.TRAIN and False:
                 sampling_probability = 1.0 - tf.train.exponential_decay(
                     1.0,
@@ -403,7 +414,7 @@ class HRED:
                 end_token=eos_id,
                 initial_state=decoder_initial_state,
                 beam_width=beam_width,
-                output_layer=output_layer
+                output_layer=self.output_layer
             )
             final_outputs, final_state, _ = dynamic_decode_with_concat(
                 decoder, context_encoder_outputs,

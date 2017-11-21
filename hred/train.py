@@ -49,7 +49,7 @@ def print_inference(source_strings, target_strings,
 
 
 def train(argv=None):
-    num_vocab = get_vocab_size(FLAGS.vocab_pathf)
+    num_vocab = get_vocab_size(FLAGS.vocab_path)
 
     # TODO: add hparams management. save epoch in hparams.
     hparams = tf.contrib.training.HParams(**vars(FLAGS))

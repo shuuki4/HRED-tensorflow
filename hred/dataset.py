@@ -20,6 +20,13 @@ class BatchedInput(namedtuple("BatchedInput",
     pass
 
 
+class InferInput(namedtuple("InferInput",
+                            ("placeholder",
+                             "sources",
+                             "src_lengths"))):
+    pass
+
+
 def _pad_1d_tensor(tensor, max_length, dtype=tf.int32):
     return tf.concat(
         [tensor, tf.zeros((max_length - tf.size(tensor), ), dtype=dtype)], 0)
@@ -132,6 +139,31 @@ def get_iterator(corpus_file, vocab_table, batch_size,
                         targets_out=targets_out,
                         src_lengths=src_lengths,
                         tgt_lengths=tgt_lengths)
+
+
+def get_infer_inputs(vocab_table, num_sentence):
+    """
+    Return iterator placeholder and input tensors
+    """
+    eos_id = tf.cast(vocab_table.lookup(tf.constant(EOS)), tf.int32)
+
+    input_strings = tf.placeholder(tf.string, [num_sentence])
+    split_inputs = tuple(
+        tf.cast(vocab_table.lookup(tf.string_split([sent])).values, tf.int32)
+        for sent in tf.unstack(input_strings)
+    )
+    sources = [tf.concat((l, [eos_id]), 0) for l in split_inputs]
+    src_lengths = tf.stack([tf.size(x) for x in sources])
+    src_max_length = tf.reduce_max(src_lengths)
+    sources = tf.stack([_pad_1d_tensor(s, src_max_length) for s in sources])
+
+    # add batch dim
+    sources = tf.expand_dims(sources, axis=0)
+    src_lengths = tf.expand_dims(src_lengths, axis=0)
+
+    return InferInput(placeholder=input_strings,
+                      sources=sources,
+                      src_lengths=src_lengths)
 
 
 def to_single_string(strings):
