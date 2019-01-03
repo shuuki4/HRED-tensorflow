@@ -43,7 +43,7 @@ def get_infer_model(hparams, graph, num_sentence):
     tf_config = tf.ConfigProto()
     tf_config.gpu_options.allow_growth = True
     sess = tf.Session(config=tf_config, graph=graph)
-    sess.run(tf.tables_initializer())
+    sess.run([tf.initializers.global_variables(), tf.tables_initializer()])
 
     return model, inputs, sess
 

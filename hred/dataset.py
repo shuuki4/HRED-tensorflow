@@ -40,7 +40,7 @@ def get_vocab_size(vocab_file):
 
 def get_vocab_table(vocab_file, reverse=False):
     vocabs = [PAD, UNK, SOS, EOS]
-    counts = [0, 0, 0, 0]
+    counts = [0]*len(vocabs)
     with open(vocab_file, 'r', encoding='utf-8') as f:
         for line in f:
             vocab, count = line.strip().split('\t')
@@ -50,6 +50,7 @@ def get_vocab_table(vocab_file, reverse=False):
     # probability of EOS should be 1. / (average target token num + 1).
     # currently 2.75
     sum_counts = sum(counts)
+    # TODO: fix here to calculate average from input data instead for hardcoded one
     eos_prob = 1. / (2.75 + 1)
     vocab_probs = np.array(counts, dtype=np.float32) * (1 - eos_prob) \
                   / sum_counts
@@ -66,7 +67,7 @@ def get_vocab_table(vocab_file, reverse=False):
 
 
 def get_iterator(corpus_file, vocab_table, batch_size,
-                 skip_unk_target=True,
+                 skip_unk_target=False,
                  num_threads=4, output_buffer_size=None):
     if output_buffer_size is None:
         output_buffer_size = batch_size * 1000
@@ -94,18 +95,18 @@ def get_iterator(corpus_file, vocab_table, batch_size,
             [_pad_1d_tensor(t, tgt_max_length) for t in targets_out])
         return sources, targets_in, targets_out, src_lengths, tgt_lengths
 
-    dataset = tf.contrib.data.TextLineDataset(corpus_file)
+    dataset = tf.data.TextLineDataset(corpus_file)
     dataset = dataset.shuffle(output_buffer_size)
 
     dataset = dataset.map(
         lambda line: tf.string_split([line], delimiter='\t').values,
-        num_threads=num_threads, output_buffer_size=output_buffer_size)
+        num_parallel_calls=num_threads)
     dataset = dataset.map(
         lambda sents: tuple(
             tf.cast(vocab_table.lookup(tf.string_split([sents[i]]).values),
                     tf.int32)
             for i in range(num_sentences)),
-        num_threads=num_threads, output_buffer_size=output_buffer_size)
+        num_parallel_calls=num_threads)
 
     if skip_unk_target:
         unk_idx = tf.constant(1, dtype=tf.int32)
@@ -118,7 +119,7 @@ def get_iterator(corpus_file, vocab_table, batch_size,
 
     dataset = dataset.map(
         _add_token_and_split,
-        num_threads=num_threads, output_buffer_size=output_buffer_size)
+        num_parallel_calls=num_threads)
 
     batched_dataset = dataset.padded_batch(
         batch_size,
