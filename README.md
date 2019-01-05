@@ -6,7 +6,12 @@ This code is tensorflow implementation of the paper:
 
 The pre-print of the paper is available at: http://arxiv.org/abs/1507.02221.
 
-Extension of original [repo by shuuki4](https://github.com/shuuki4/HRED-tensorflow)
+Extension of original [repo by Beomsu Kim](https://github.com/shuuki4/HRED-tensorflow)
+
+-- Setup
+```
+pip install -r requirements.txt
+```
 
 -- Sample data generation
 

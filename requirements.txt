@@ -1,0 +1,6 @@
+num2words
+colorlog
+easydict
+# for sample data generation
+num2words
+pandas
