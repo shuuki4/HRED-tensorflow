@@ -88,4 +88,5 @@ def get_hparams_parser():
                         help="width of beam used in beam search")
     parser.add_argument("--target_max_length", type=int, default=10,
                         help="maximum token length of target decode")
+    parser.add_argument("--infer_sample", type=str, default="", help="string to use incase of inference mode. all queries in session seperated by \\t")
     return parser
