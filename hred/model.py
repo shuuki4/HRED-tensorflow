@@ -359,10 +359,10 @@ class HRED:
         decoder_initial_state = decoder_initial_state.clone(
             cell_state=sentence_encoder_final_states)
 
-        with tf.variable_scope('output_projection'):
-            output_layer = layers_core.Dense(
-                self.hparams.num_vocab, name="output_projection")
-            self.output_layer = output_layer
+        # with tf.variable_scope('output_projection'), tf.name_scope('output_projection'):
+        output_layer = tf.layers.Dense(self.hparams.num_vocab, name="output_projection_dense_layer",
+                                       _scope='sentence_decoder/decoder') # layers_core.Dense()
+        self.output_layer = output_layer
 
         if self.mode in {tf.contrib.learn.ModeKeys.TRAIN,
                          tf.contrib.learn.ModeKeys.EVAL}:
